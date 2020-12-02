@@ -1,0 +1,47 @@
+---
+- hosts: all
+  gather_facts: no
+  tasks:
+
+  - name: "output the contents of the 'ansible_play_batch' magic variable"
+    debug:
+     msg: "{{ ansible_play_batch }}"
+
+  - name: authenticate with a Vault app role
+    uri:
+      url: http://"{{ vault_addr }}":8200/v1/auth/approle/login
+      method: POST
+      body_format: json
+      body:
+        role_id: "{{ role }}"
+        secret_id: "{{ secret }}"
+    delegate_to: 127.0.0.1
+    register: client_token
+
+  - name: authenticate with the returned token
+    uri:
+      url: http://"{{ vault_addr }}":8200/v1/ssh/creds/otp_key_role
+      method: POST
+      body_format: json
+      body:
+        ip: "{{ ansible_host }}"
+      headers: {X-Vault-Token: '{{ client_token.json.auth.client_token }}'}
+    delegate_to: 127.0.0.1
+    register: returned_key
+
+  - name: Add host to inventory
+    add_host:
+      hostname: "{{ item }}"
+      groups: dynamic
+      ansible_user: ansible
+      ansible_password: "{{ returned_key.json.data.key }}"
+    loop: "{{ query('inventory_hostnames', 'all') }}"
+
+- hosts: dynamic
+  tasks:
+    - name: Run hostname
+      command: hostname
+    - name: Run whomai
+      command: whoami
+    - name: Run id
+      command: id
